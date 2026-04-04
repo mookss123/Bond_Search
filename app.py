@@ -272,7 +272,7 @@ if do_search and query.strip():
     st.session_state.ph_selected   = []
     with st.spinner(f"搜尋「{query}」並載入所有資料..."):
         try:
-raw  = search_bonds(query.strip(), page_size=page_size)
+            raw  = search_bonds(query.strip(), page_size=page_size)
             hits = raw.get("result") or raw.get("data") or []
             total = raw.get("total") or len(hits)
 
