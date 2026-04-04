@@ -272,18 +272,18 @@ if do_search and query.strip():
     st.session_state.ph_selected   = []
     with st.spinner(f"搜尋「{query}」並載入所有資料..."):
         try:
-            raw  = search_bonds(query.strip(), page_size=page_size)
-hits = raw.get("result") or raw.get("data") or []
-total = raw.get("total") or len(hits)
+raw  = search_bonds(query.strip(), page_size=page_size)
+            hits = raw.get("result") or raw.get("data") or []
+            total = raw.get("total") or len(hits)
 
-target_year = parse_maturity_year(query.strip())
-if target_year and hits:
-    before = len(hits)
-    yy = str(target_year)[2:]
-    hits = [b for b in hits
-            if f"/{yy}" in _name(b) or "/" not in _name(b)]
-    if len(hits) < before:
-        st.caption(f"ℹ️ 已自動移除非 {target_year} 年到期的結果（移除 {before - len(hits)} 筆）")
+            target_year = parse_maturity_year(query.strip())
+            if target_year and hits:
+                before = len(hits)
+                yy = str(target_year)[2:]
+                hits = [b for b in hits
+                        if f"/{yy}" in _name(b) or "/" not in _name(b)]
+                if len(hits) < before:
+                    st.caption(f"ℹ️ 已自動移除非 {target_year} 年到期的結果（移除 {before - len(hits)} 筆）")
 
             if not hits:
                 st.warning("找不到結果，請換個關鍵字。")
