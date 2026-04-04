@@ -76,6 +76,14 @@ def get_last_price(isin, mic="XFRA"):
     rows_sorted = sorted(rows, key=lambda r: r.get("date", ""), reverse=True)
     return rows_sorted[0].get("close", "—")
 
+def parse_maturity_year(query: str):
+    import re
+    m = re.search(r'\b\d{2}/(\d{2})\b', query)
+    if m:
+        yy = int(m.group(1))
+        return 2000 + yy
+    return None
+    
 def get_price_history(isin, start, end, mic="XFRA"):
     for attempt in range(2):
         try:
@@ -265,8 +273,18 @@ if do_search and query.strip():
     with st.spinner(f"搜尋「{query}」並載入所有資料..."):
         try:
             raw  = search_bonds(query.strip(), page_size=page_size)
-            hits = raw.get("result") or raw.get("data") or []
-            total = raw.get("total") or len(hits)
+hits = raw.get("result") or raw.get("data") or []
+total = raw.get("total") or len(hits)
+
+target_year = parse_maturity_year(query.strip())
+if target_year and hits:
+    before = len(hits)
+    yy = str(target_year)[2:]
+    hits = [b for b in hits
+            if f"/{yy}" in _name(b) or "/" not in _name(b)]
+    if len(hits) < before:
+        st.caption(f"ℹ️ 已自動移除非 {target_year} 年到期的結果（移除 {before - len(hits)} 筆）")
+
             if not hits:
                 st.warning("找不到結果，請換個關鍵字。")
                 st.session_state.result_rows = []
