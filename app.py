@@ -60,8 +60,18 @@ def _get(path, params, timeout=25):
     return {}
 
 def search_bonds(query, page_size=50):
-    return _get("/v1/global_search/pagedsearch/bond/en",
-                {"searchTerms": query, "page": 1, "pageSize": page_size})
+    # API 單次最多 50，超過要分頁
+    all_hits = []
+    pages = (page_size + 49) // 50  # 每頁 50 筆
+    for page in range(1, pages + 1):
+        raw = _get("/v1/global_search/pagedsearch/bond/en",
+                   {"searchTerms": query, "page": page, "pageSize": 50})
+        hits = raw.get("result") or raw.get("data") or []
+        all_hits.extend(hits)
+        total = raw.get("total") or 0
+        if len(all_hits) >= total or len(all_hits) >= page_size or not hits:
+            break
+    return {"result": all_hits[:page_size], "total": len(all_hits)}
 
 def get_master_data(isin):
     return _get("/v1/data/master_data_bond", {"isin": isin})
@@ -194,9 +204,20 @@ def to_excel(summary_df, history_dict):
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         summary_df.to_excel(w, sheet_name="Summary", index=False)
-        for isin, hdf in history_dict.items():
-            if not hdf.empty:
-                hdf.to_excel(w, sheet_name=isin[:31], index=False)
+        # 所有 Price History 合併成一個 Sheet，加 ISIN 欄位區分
+        all_hist = []
+        for key, hdf in history_dict.items():
+            if hdf is not None and not hdf.empty:
+                tmp = hdf.copy()
+                # key 格式: "ISIN|start|end" 或 "ISIN"
+                parts = key.split("|")
+                tmp.insert(0, "ISIN", parts[0])
+                if len(parts) >= 3:
+                    tmp.insert(1, "Period", f"{parts[1]}~{parts[2]}" if parts[1]!=parts[2] else parts[1])
+                all_hist.append(tmp)
+        if all_hist:
+            pd.concat(all_hist, ignore_index=True).to_excel(
+                w, sheet_name="Price History", index=False)
     return buf.getvalue()
 
 def parse_dates_input(text):
@@ -244,7 +265,7 @@ with c1:
         placeholder="例如：25/55  |  EDF  |  Microsoft  |  ISIN",
         label_visibility="collapsed")
 with c2:
-    page_size = st.selectbox("最多筆數", [20,50,100,200], index=1,
+    page_size = st.selectbox("最多筆數", [20,50,100,200,500,1000], index=1,
                               label_visibility="collapsed")
 with c3:
     do_search = st.button("🔍 搜尋", type="primary", use_container_width=True)
@@ -257,16 +278,6 @@ if do_search and query.strip():
         try:
             raw  = search_bonds(query.strip(), page_size=page_size)
             hits = raw.get("result") or raw.get("data") or []
-
-            # 到期年份過濾
-            target_year = parse_maturity_year(query.strip())
-            if target_year and hits:
-                yy     = str(target_year)[2:]
-                before = len(hits)
-                hits   = [b for b in hits
-                          if f"/{yy}" in _name(b) or "/" not in _name(b)]
-                if len(hits) < before:
-                    st.caption(f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {before-len(hits)} 筆）")
 
             if not hits:
                 st.warning("找不到結果")
@@ -289,6 +300,15 @@ if do_search and query.strip():
                         prog.progress(done[0]/len(hits),
                                       text=f"載入中 {done[0]}/{len(hits)}")
                 prog.empty()
+                # 到期年份過濾（用實際 Maturity Date，比名稱更準確）
+                target_year = parse_maturity_year(query.strip())
+                if target_year:
+                    before = len(rows)
+                    rows = [r for r in rows
+                            if str(r.get("Maturity Date","")).startswith(str(target_year))]
+                    removed = before - len(rows)
+                    if removed > 0:
+                        st.caption(f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {removed} 筆）")
                 rows.sort(key=lambda r: order.index(r["ISIN"]) if r["ISIN"] in order else 999)
                 st.session_state.rows = rows
                 st.rerun()
