@@ -60,18 +60,41 @@ def _get(path, params, timeout=25):
     return {}
 
 def search_bonds(query, page_size=50):
-    # API 單次最多 50，超過要分頁
-    all_hits = []
-    pages = (page_size + 49) // 50  # 每頁 50 筆
-    for page in range(1, pages + 1):
-        raw = _get("/v1/global_search/pagedsearch/bond/en",
-                   {"searchTerms": query, "page": page, "pageSize": 50})
-        hits = raw.get("result") or raw.get("data") or []
-        all_hits.extend(hits)
-        total = raw.get("total") or 0
-        if len(all_hits) >= total or len(all_hits) >= page_size or not hits:
-            break
-    return {"result": all_hits[:page_size], "total": len(all_hits)}
+    """支援逗號分隔多個關鍵字，並行搜尋後合併去重"""
+    terms = [q.strip() for q in query.replace("，",",").split(",") if q.strip()]
+    if not terms:
+        return {"result": [], "total": 0}
+
+    def search_one(term, page_size):
+        all_hits = []
+        pages = (page_size + 49) // 50
+        for page in range(1, pages + 1):
+            raw = _get("/v1/global_search/pagedsearch/bond/en",
+                       {"searchTerms": term, "page": page, "pageSize": 50})
+            hits = raw.get("result") or raw.get("data") or []
+            all_hits.extend(hits)
+            total = raw.get("total") or 0
+            if len(all_hits) >= total or len(all_hits) >= page_size or not hits:
+                break
+        return all_hits[:page_size]
+
+    if len(terms) == 1:
+        hits = search_one(terms[0], page_size)
+    else:
+        # 多關鍵字：並行搜尋，每個 term 各抓 page_size 筆
+        all_hits = []
+        seen_isins = set()
+        with ThreadPoolExecutor(max_workers=min(len(terms), 5)) as ex:
+            futures = {ex.submit(search_one, t, page_size): t for t in terms}
+            for f in as_completed(futures):
+                for bond in f.result():
+                    isin = bond.get("isin","")
+                    if isin and isin not in seen_isins:
+                        seen_isins.add(isin)
+                        all_hits.append(bond)
+        hits = all_hits
+
+    return {"result": hits, "total": len(hits)}
 
 def get_master_data(isin):
     return _get("/v1/data/master_data_bond", {"isin": isin})
@@ -262,7 +285,7 @@ for k, v in [("rows",[]), ("cart",[]), ("ph_cache",{}), ("ph_selected",[])]:
 c1, c2, c3 = st.columns([4, 1, 1])
 with c1:
     query = st.text_input("搜尋",
-        placeholder="例如：25/55  |  EDF  |  Microsoft  |  ISIN",
+        placeholder="單筆：EDF  |  多筆用逗號：United States, Saudi, Königreich  |  年份：/55",
         label_visibility="collapsed")
 with c2:
     page_size = st.selectbox("最多筆數", [20,50,100,200,500,1000], index=1,
