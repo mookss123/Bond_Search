@@ -59,6 +59,19 @@ def _get(path, params, timeout=25):
             raise
     return {}
 
+def advanced_search_bonds(payload: dict) -> dict:
+    """POST /v1/search/bond_search - 進階篩選搜尋"""
+    full_url = f"{BASE_URL}/v1/search/bond_search"
+    for attempt in range(2):
+        try:
+            r = requests.post(full_url, json=payload,
+                              headers=_make_headers(full_url), timeout=25)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.Timeout:
+            if attempt == 1: raise
+    return {}
+
 def search_bonds(query, page_size=50):
     """支援逗號分隔多個關鍵字，並行搜尋後合併去重"""
     terms = [q.strip() for q in query.replace("，",",").split(",") if q.strip()]
@@ -282,25 +295,117 @@ for k, v in [("rows",[]), ("cart",[]), ("ph_cache",{}), ("ph_selected",[])]:
         st.session_state[k] = v
 
 # ── 搜尋列 ───────────────────────────────────────────────────────────────────
-c1, c2, c3 = st.columns([4, 1, 1])
-with c1:
-    query = st.text_input("搜尋",
-        placeholder="單筆：EDF  |  多筆用逗號：United States, Saudi, Königreich  |  年份：/55",
-        label_visibility="collapsed")
-with c2:
-    page_size = st.selectbox("最多筆數", [20,50,100,200,500,1000], index=1,
-                              label_visibility="collapsed")
-with c3:
-    do_search = st.button("🔍 搜尋", type="primary", use_container_width=True)
+search_mode = st.radio("搜尋模式", ["🔍 關鍵字搜尋", "⚙️ 進階條件搜尋"],
+                        horizontal=True, label_visibility="collapsed")
+
+if search_mode == "🔍 關鍵字搜尋":
+    c1, c2, c3 = st.columns([4, 1, 1])
+    with c1:
+        query = st.text_input("搜尋",
+            placeholder="單筆：EDF  |  多筆：United States, Saudi  |  年份：/55",
+            label_visibility="collapsed")
+    with c2:
+        page_size = st.selectbox("最多筆數", [20,50,100,200,500,1000], index=1,
+                                  label_visibility="collapsed")
+    with c3:
+        do_search = st.button("🔍 搜尋", type="primary", use_container_width=True)
+    do_advanced = False
+
+else:
+    # ── 進階搜尋 ──────────────────────────────────────────────────────────
+    with st.expander("⚙️ 進階搜尋條件", expanded=True):
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            adv_issuer = st.text_input("Issuer（可留空）",
+                placeholder="e.g. Israel, Staat")
+            adv_issuer_type = st.multiselect("Issuer Type",
+                options=["GOVERNMENT_BOND","CORPORATE_BOND","BANK_BOND",
+                         "PFANDBRIEF","JUMBO_PFANDBRIEF"],
+                default=[],
+                format_func=lambda x: {
+                    "GOVERNMENT_BOND": "🏛 Government Bond",
+                    "CORPORATE_BOND":  "🏢 Corporate Bond",
+                    "BANK_BOND":       "🏦 Bank Bond",
+                    "PFANDBRIEF":      "🏠 Pfandbrief",
+                    "JUMBO_PFANDBRIEF":"🏠 Jumbo Pfandbrief",
+                }.get(x, x))
+        with a2:
+            adv_currency = st.multiselect("Currency",
+                ["USD","EUR","GBP","JPY","CHF","AUD","CAD"], default=[])
+            adv_interest_type = st.multiselect("Interest Type",
+                options=["FIXED_INTEREST_RATE","VARIABLE_INTEREST_RATE","ZERO_COUPON"],
+                default=[],
+                format_func=lambda x: {
+                    "FIXED_INTEREST_RATE":    "固定利率 (Fixed)",
+                    "VARIABLE_INTEREST_RATE": "浮動利率 (Variable)",
+                    "ZERO_COUPON":            "零息 (Zero Coupon)",
+                }.get(x, x))
+        with a3:
+            adv_coupon_min = st.number_input("Coupon 最小 (%)", 0.0, 30.0, 0.0, 0.1)
+            adv_coupon_max = st.number_input("Coupon 最大 (%)", 0.0, 30.0, 30.0, 0.1)
+
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            adv_mat_min = st.number_input("到期年份 最早", 2025, 2100, 2025, 1)
+            adv_mat_max = st.number_input("到期年份 最晚", 2025, 2100, 2100, 1)
+        with b2:
+            adv_sub = st.selectbox("Subordinated",
+                ["不限","否 (Non-sub)","是 (Sub)"])
+            adv_limit = st.selectbox("最多筆數", [25,50,100,200,500], index=1)
+        with b3:
+            adv_sort = st.selectbox("排序依據",
+                ["TURNOVER","COUPON","MATURITY_DATE"],
+                format_func=lambda x: {
+                    "TURNOVER":"成交量","COUPON":"票面利率","MATURITY_DATE":"到期日"
+                }.get(x,x))
+
+    c_search = st.columns([1,3])
+    with c_search[0]:
+        do_advanced = st.button("⚙️ 進階搜尋", type="primary", use_container_width=True)
+    query     = ""
+    page_size = adv_limit
+    do_search = False
 
 # ── 搜尋執行 ──────────────────────────────────────────────────────────────────
-if do_search and query.strip():
+if (do_search and query.strip()) or do_advanced:
     st.session_state.ph_cache    = {}
     st.session_state.ph_selected = []
-    with st.spinner(f"搜尋「{query}」..."):
+    with st.spinner("搜尋中..."):
         try:
-            raw  = search_bonds(query.strip(), page_size=page_size)
-            hits = raw.get("result") or raw.get("data") or []
+            if do_advanced:
+                # 組 POST payload
+                payload = {
+                    "lang": "en",
+                    "limit": adv_limit,
+                    "offset": 0,
+                    "sorting": adv_sort,
+                    "sortOrder": "DESC",
+                    "issuers":      [adv_issuer.strip()] if adv_issuer.strip() else [],
+                    "issuerTypes":  adv_issuer_type,
+                    "bondTypes":    [],
+                    "countries":    [],
+                    "currencies":   adv_currency,
+                    "interestTypes": adv_interest_type,
+                    "segments":     [],
+                    "couponMin":    adv_coupon_min if adv_coupon_min > 0 else None,
+                    "couponMax":    adv_coupon_max if adv_coupon_max < 30 else None,
+                    "maturityDateMin": adv_mat_min if adv_mat_min > 2025 else None,
+                    "maturityDateMax": adv_mat_max if adv_mat_max < 2100 else None,
+                    "minimumInvestment": None,
+                    "termToMaturityMin": None,
+                    "termToMaturityMax": None,
+                }
+                if adv_sub == "否 (Non-sub)":
+                    payload["subordinated"] = False
+                elif adv_sub == "是 (Sub)":
+                    payload["subordinated"] = True
+
+                raw  = advanced_search_bonds(payload)
+                hits = (raw.get("bonds") or raw.get("result")
+                        or raw.get("data") or raw.get("items") or [])
+            else:
+                raw  = search_bonds(query.strip(), page_size=page_size)
+                hits = raw.get("result") or raw.get("data") or []
 
             if not hits:
                 st.warning("找不到結果")
