@@ -349,7 +349,7 @@ if rows:
                     step=0.1, format="%.1f%%", key="f_c")
             else:
                 c_range = (0.0, 99.0)
-        f4, f5 = st.columns(2)
+        f4, f5, f6 = st.columns(3)
         with f4:
             sel_sub = st.radio("Subordinated",
                 ["全部","❌ 否","✅ 是"], index=0, horizontal=True, key="f_sub")
@@ -360,6 +360,15 @@ if rows:
                 max_value=float(v_mia.max()) if not v_mia.empty else 1e9,
                 value=float(v_mia.max()) if not v_mia.empty else 1e9,
                 step=1000.0, format="%.0f", key="f_mia") if not v_mia.empty else 1e9
+        with f6:
+            # Maturity Year 篩選
+            all_years = sorted(set(
+                int(str(m)[:4]) for m in df_all["Maturity Date"].dropna()
+                if str(m) not in ("—","") and str(m)[:4].isdigit()
+            ))
+            sel_years = st.multiselect("到期年份 (Maturity Year)",
+                options=all_years, default=[], key="f_year",
+                placeholder="不限（留空=全部）")
 
     # 套用篩選
     df = df_all.copy()
@@ -377,6 +386,11 @@ if rows:
         df = df[df["Subordinated"].apply(lambda x: x is True or str(x).lower()=="true")]
     df["_m"] = pd.to_numeric(df["Min. Investment Amount"], errors="coerce")
     df = df[df["_m"].isna() | (df["_m"] <= mia_limit)]
+    # Maturity Year 篩選
+    if sel_years:
+        df = df[df["Maturity Date"].apply(
+            lambda m: str(m)[:4].isdigit() and int(str(m)[:4]) in sel_years
+            if m and str(m) not in ("—","") else False)]
 
     # 排序
     def sort_key(r):
