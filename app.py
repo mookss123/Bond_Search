@@ -300,20 +300,16 @@ if do_search and query.strip():
                         prog.progress(done[0]/len(hits),
                                       text=f"載入中 {done[0]}/{len(hits)}")
                 prog.empty()
-                # 到期年份過濾（用實際 Maturity Date）
                 target_year = parse_maturity_year(query.strip())
                 if target_year:
                     before = len(rows)
-                    def maturity_ok(r):
-                        mat = str(r.get("Maturity Date",""))
-                        if not mat or mat == "—": return True  # 沒資料的保留
-                        return mat.startswith(str(target_year))
-                    rows = [r for r in rows if maturity_ok(r)]
+                    target_str = str(target_year)
+                    rows = [r for r in rows
+                            if str(r.get("Maturity Date","")).startswith(target_str)]
                     removed = before - len(rows)
-                    if removed > 0:
-                        st.session_state["maturity_msg"] = f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {removed} 筆）"
-                    else:
-                        st.session_state["maturity_msg"] = ""
+                    st.session_state["maturity_msg"] = (
+                        f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {removed} 筆）"
+                        if removed > 0 else "")
                 else:
                     st.session_state["maturity_msg"] = ""
                 rows.sort(key=lambda r: order.index(r["ISIN"]) if r["ISIN"] in order else 999)
