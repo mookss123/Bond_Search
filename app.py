@@ -398,8 +398,15 @@ if (do_search and query.strip()) or do_advanced:
                     payload["subordinated"] = True
 
                 raw  = advanced_search_bonds(payload)
+                # bond_search 回傳格式：嘗試各種可能的 key
                 hits = (raw.get("bonds") or raw.get("result")
                         or raw.get("data") or raw.get("items") or [])
+                # 如果還是空的，檢查是否有 total=0 的正常空結果
+                if not hits and raw.get("total", -1) == 0:
+                    hits = []
+                elif not hits and raw:
+                    # 回傳了某些東西但我們不認識格式，顯示 debug 訊息
+                    st.info(f"API 回傳格式：{list(raw.keys())}")
             else:
                 raw  = search_bonds(query.strip(), page_size=page_size)
                 hits = raw.get("result") or raw.get("data") or []
@@ -584,6 +591,40 @@ if rows:
 
     names     = {r["ISIN"]: r["名稱"] for r in rows}
     isin_list = [r["ISIN"] for r in rows]
+
+    # ── Excel 匯入 ISIN ───────────────────────────────────────────────────
+    with st.expander("📂 從 Excel 匯入 ISIN", expanded=False):
+        st.caption("Excel 格式：第一列為表頭，A 欄 = ISIN，B 欄 = Bond Name（可選）")
+        uploaded = st.file_uploader("上傳 Excel", type=["xlsx","xls"],
+                                    key="ph_excel_upload")
+        if uploaded:
+            try:
+                df_upload = pd.read_excel(uploaded, header=0)
+                # 第一欄當 ISIN，第二欄當名稱（如果有）
+                isin_col = df_upload.columns[0]
+                name_col = df_upload.columns[1] if len(df_upload.columns) > 1 else None
+                imported_isins = [str(v).strip() for v in df_upload[isin_col].dropna()
+                                  if str(v).strip()]
+                if name_col is not None:
+                    for i, row in df_upload.iterrows():
+                        isin_val = str(row[isin_col]).strip()
+                        name_val = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
+                        if isin_val and isin_val not in names:
+                            names[isin_val] = name_val
+                # 合併進 isin_list（去重）
+                new_isins = [i for i in imported_isins if i not in isin_list]
+                if new_isins:
+                    isin_list = isin_list + new_isins
+                    st.success(f"✅ 匯入 {len(imported_isins)} 筆，其中 {len(new_isins)} 筆為新增")
+                else:
+                    st.info(f"匯入 {len(imported_isins)} 筆，已全部在列表中")
+                # 自動帶入 ph_selected
+                merged_upload = list(dict.fromkeys(
+                    imported_isins + st.session_state.ph_selected))
+                st.session_state.ph_selected = merged_upload
+                st.session_state["ph_ms"] = [i for i in merged_upload if i in isin_list]
+            except Exception as e:
+                st.error(f"讀取失敗：{e}")
 
     # 購物車自動帶入
     cart_list = [r["ISIN"] for r in st.session_state.cart if r["ISIN"] in isin_list]
