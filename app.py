@@ -319,15 +319,15 @@ else:
             adv_issuer = st.text_input("Issuer（可留空）",
                 placeholder="e.g. Israel, Staat")
             adv_issuer_type = st.multiselect("Issuer Type",
-                options=["GOVERNMENT_BOND","BANK","CORPORATE",
-                         "PFANDBRIEF","JUMBO_PFANDBRIEF"],
+                options=["GOVERNMENT_BOND","CORPORATE_BONDS","BANKS",
+                         "STATE_OWNED_COMPANIES","STATES_AND_MUNICIPALITIES"],
                 default=[],
                 format_func=lambda x: {
-                    "GOVERNMENT_BOND": "🏛 Government Bond",
-                    "CORPORATE":       "🏢 Corporate Bond",
-                    "BANK":            "🏦 Bank Bond",
-                    "PFANDBRIEF":      "🏠 Pfandbrief",
-                    "JUMBO_PFANDBRIEF":"🏠 Jumbo Pfandbrief",
+                    "GOVERNMENT_BOND":          "🏛 Government Bond",
+                    "CORPORATE_BONDS":          "🏢 Corporates",
+                    "BANKS":                    "🏦 Banks",
+                    "STATE_OWNED_COMPANIES":    "🏗 State Owned Companies",
+                    "STATES_AND_MUNICIPALITIES":"🏙 States & Municipalities",
                 }.get(x, x))
         with a2:
             adv_currency = st.multiselect("Currency",
@@ -347,7 +347,6 @@ else:
         b1, b2, b3 = st.columns(3)
         with b1:
             adv_mat_min = st.number_input("到期年份 最早", 2025, 2100, 2025, 1)
-            adv_mat_max = st.number_input("到期年份 最晚", 2025, 2100, 2100, 1)
         with b2:
             adv_sub = st.selectbox("Subordinated",
                 ["不限","否 (Non-sub)","是 (Sub)"])
@@ -390,10 +389,8 @@ if (do_search and query.strip()) or do_advanced:
                     "couponMin":    adv_coupon_min,
                     "couponMax":    adv_coupon_max,
                     "maturityDateMin": adv_mat_min if adv_mat_min > 2025 else None,
-                    "maturityDateMax": adv_mat_max if adv_mat_max < 2100 else None,
                     "minimumInvestment": 1.7976931348623157e+308,
                     "termToMaturityMin": None,
-                    "termToMaturityMax": None,
                 }
                 if adv_sub == "否 (Non-sub)":
                     payload["subordinated"] = False
