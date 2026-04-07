@@ -412,8 +412,13 @@ if rows:
     for i, c in enumerate(no_isin_cols): hdr[i+2].markdown(f"**{c}**")
     st.markdown("---")
 
-    for row in df_sorted.to_dict("records"):
-        isin   = row["ISIN"]
+    seen_isins = set()
+    for row_idx, row in enumerate(df_sorted.to_dict("records")):
+        isin = row["ISIN"]
+        if isin in seen_isins:
+            continue  # 跳過重複
+        seen_isins.add(isin)
+
         cb_key = f"bond_cart_cb_{isin}"
         if cb_key not in st.session_state:
             st.session_state[cb_key] = isin in cart_isins
