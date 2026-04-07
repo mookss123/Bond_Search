@@ -300,15 +300,22 @@ if do_search and query.strip():
                         prog.progress(done[0]/len(hits),
                                       text=f"載入中 {done[0]}/{len(hits)}")
                 prog.empty()
-                # 到期年份過濾（用實際 Maturity Date，比名稱更準確）
+                # 到期年份過濾（用實際 Maturity Date）
                 target_year = parse_maturity_year(query.strip())
                 if target_year:
                     before = len(rows)
-                    rows = [r for r in rows
-                            if str(r.get("Maturity Date","")).startswith(str(target_year))]
+                    def maturity_ok(r):
+                        mat = str(r.get("Maturity Date",""))
+                        if not mat or mat == "—": return True  # 沒資料的保留
+                        return mat.startswith(str(target_year))
+                    rows = [r for r in rows if maturity_ok(r)]
                     removed = before - len(rows)
                     if removed > 0:
-                        st.caption(f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {removed} 筆）")
+                        st.session_state["maturity_msg"] = f"ℹ️ 已移除非 {target_year} 年到期結果（移除 {removed} 筆）"
+                    else:
+                        st.session_state["maturity_msg"] = ""
+                else:
+                    st.session_state["maturity_msg"] = ""
                 rows.sort(key=lambda r: order.index(r["ISIN"]) if r["ISIN"] in order else 999)
                 st.session_state.rows = rows
                 st.rerun()
@@ -319,6 +326,8 @@ if do_search and query.strip():
 rows = st.session_state.rows
 if rows:
     df_all = pd.DataFrame(rows)
+    if st.session_state.get("maturity_msg"):
+        st.caption(st.session_state["maturity_msg"])
     st.success(f"共載入 **{len(rows)}** 筆")
 
     # ── 篩選 ─────────────────────────────────────────────────────────────
@@ -405,7 +414,7 @@ if rows:
 
     for row in df_sorted.to_dict("records"):
         isin   = row["ISIN"]
-        cb_key = f"cb_{isin}"
+        cb_key = f"bond_cart_cb_{isin}"
         if cb_key not in st.session_state:
             st.session_state[cb_key] = isin in cart_isins
 
